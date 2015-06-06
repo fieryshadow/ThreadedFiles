@@ -1,6 +1,5 @@
 package edu.byui.shane.threadedfiles;
 
-import android.content.Context;
 import android.support.v7.app.ActionBarActivity;
 import android.os.Bundle;
 import android.os.Handler;
@@ -61,7 +60,7 @@ public class MainActivity extends ActionBarActivity {
 
     /**
      * Allows you to easily display a toast from any thread.
-     * @param text
+     * @param text    The message you want toasted.
      */
     public void showToast(final String text) {
         mHandler.post(new Runnable() {
@@ -85,87 +84,141 @@ public class MainActivity extends ActionBarActivity {
     }
 
     /**
+     * Allows easy setting of the progress bar from any thread.
+     * @param value    The number to directly set the progress bar to.
+     */
+    public void setProgressBarTo(final int value) {
+        mHandler.post(new Runnable() {
+            public void run() {
+                mProgress.setProgress(value);
+            }
+        });
+    }
+
+    /**
+     * Allows easy incrementing of the progress bar from any thread.
+     * @param amount    The amount you want to increment the progress bar by.
+     */
+    public void incrementProgressBarBy(final int amount) {
+        mHandler.post(new Runnable() {
+            public void run() {
+                mProgress.incrementProgressBy(amount);
+            }
+        });
+    }
+
+    /**
+     * Makes getting a file for reading from internal storage a one liner.
+     * @param filename    The name of the file you want to open.
+     * @return BufferedReader
+     * @throws IOException
+     */
+    public BufferedReader getReadableFile(String filename) throws IOException {
+        File f = new File(MainActivity.this.getFilesDir(), filename);
+        return new BufferedReader(new java.io.FileReader(f));
+    }
+
+    /**
+     * Makes getting a file for writing to internal storage a one liner.
+     * @param filename    The name of the file you want to open.
+     * @return BufferedWriter
+     * @throws IOException
+     */
+    public BufferedWriter getWritableFile(String filename) throws IOException {
+        File f = new File(MainActivity.this.getFilesDir(), filename);
+        if (!f.exists()) {
+            f.createNewFile();
+        }
+        return new BufferedWriter(new java.io.FileWriter(f));
+    }
+
+    /**
      * Spawns a new thread which creates a "large" file.
-     * @param view
+     * @param view    A view from the main activity.
      */
     public void createFile(View view) {
-        final Context context = getApplicationContext();
-        mProgress.setProgress(0);
-        new Thread(new Runnable() {
+        new Thread(new SafeRunner() {
             @Override
-            public void run() {
-                try {
-                    File f = new File(context.getFilesDir(), filename);
-                    if (!f.exists()) {
-                        f.createNewFile();
-                    }
-                    BufferedWriter file = new BufferedWriter(new java.io.FileWriter(f));
-
-                    // write data to the file and update the progress bar along the way
-                    for (int i = 1; i <= 10; i++) {
-                        file.write(i + "\n");
-                        mHandler.post(new Runnable() {
-                            public void run() {
-                                mProgress.incrementProgressBy(10);
-                            }
-                        });
-                        Thread.sleep(250);
-                    }
-                    file.close();
-                    showToast("File creation successful.");
-                } catch (InterruptedException e) {
-                    e.printStackTrace();
-                } catch (IOException e) {
-                    e.printStackTrace();
-                    showToast("Error creating file.");
+            public void tryRun() throws IOException, InterruptedException {
+                setProgressBarTo(0);
+                BufferedWriter file = getWritableFile(filename);
+                for (int i = 1; i <= 10; i++) {
+                    file.write(i + "\n");
+                    incrementProgressBarBy(10);
+                    Thread.sleep(250);
                 }
+                file.close();
+                showToast("File creation successful.");
+            }
+
+            @Override
+            public void catchRun(Exception ex) {
+                ex.printStackTrace();
+                showToast("Error creating file.");
             }
         }).start();
     }
 
     /**
      * Loads a "large" file using a separate thread.
-     * @param view
+     * @param view    A view from the main activity.
      */
     public void loadFile(View view) {
-        final Context context = getApplicationContext();
-        mProgress.setProgress(0);
-        new Thread(new Runnable() {
+        new Thread(new SafeRunner() {
             @Override
-            public void run() {
-                try {
-                    File f = new File(context.getFilesDir(), filename);
-                    BufferedReader file = new BufferedReader(new java.io.FileReader(f));
-
-                    // load data into list and update progress bar to correspond
-                    for (int i = 1; i <= 10; i++) {
-                        loadedLines.add(file.readLine());
-                        mHandler.post(new Runnable() {
-                            public void run() {
-                                mProgress.incrementProgressBy(10);
-                            }
-                        });
-                        Thread.sleep(250);
-                    }
-                    file.close();
-                    updateListView();
-                    showToast("File loaded.");
-                } catch (InterruptedException e) {
-                    e.printStackTrace();
-                } catch (IOException e) {
-                    e.printStackTrace();
-                    showToast("Error loading file.");
+            public void tryRun() throws IOException, InterruptedException {
+                setProgressBarTo(0);
+                BufferedReader file = getReadableFile(filename);
+                for (int i = 1; i <= 10; i++) {
+                    loadedLines.add(file.readLine());
+                    incrementProgressBarBy(10);
+                    Thread.sleep(250);
                 }
+                file.close();
+                updateListView();
+                showToast("File loaded.");
+            }
+
+            @Override
+            public void catchRun(Exception ex) {
+                ex.printStackTrace();
+                showToast("Error loading file.");
             }
         }).start();
     }
 
     /**
      * Clears the list on the main screen, and sets the progress bar to 0.
-     * @param view
+     * @param view    A view from the main activity.
      */
     public void clearList(View view) {
         mProgress.setProgress(0);
         linesView.clear();
     }
+}
+
+/**
+ * Makes it so you don't need to put a try catch block explicitly in your code for
+ * handling "run of the mill" exceptions (file IO, I'm looking at you).
+ */
+abstract class SafeRunner implements Runnable {
+    public final void run() {
+        try {
+            tryRun();
+        } catch (Exception ex) {
+            catchRun(ex);
+        }
+    }
+
+    /**
+     * Override this with the code you don't want to put in a try catch block.
+     * @throws Exception
+     */
+    public abstract void tryRun() throws Exception;
+
+    /**
+     * Override this with the code you want to execute if an exception occurs.
+     * @param ex    The exception thrown in the try block method.
+     */
+    public abstract void catchRun(Exception ex);
 }
